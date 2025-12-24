@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { MarketOrderbook } from '../../database/entities/market-orderbook.entity';
+import { ClickHouseService } from '../../common/services/clickhouse.service';
 
 export interface ArbitrageInsightQuery {
   assetIdA: string;
@@ -49,15 +47,15 @@ export interface ArbitrageInsightResponse {
 @Injectable()
 export class ArbitrageInsightService {
   private readonly logger = new Logger(ArbitrageInsightService.name);
+  private readonly orderbookTable = 'market_orderbooks_analytics';
 
   constructor(
-    @InjectRepository(MarketOrderbook)
-    private readonly orderbookRepository: Repository<MarketOrderbook>,
+    private readonly clickHouseService: ClickHouseService,
   ) {}
 
   /**
    * Calculate arbitrage opportunities between two assets
-   * Optimized for large database by using indexed queries and JSONB operations
+   * Optimized for ClickHouse by using indexed joins on timestamp and precomputed best bid/ask columns
    */
   async getArbitrageInsights(
     query: ArbitrageInsightQuery,
@@ -68,67 +66,54 @@ export class ArbitrageInsightService {
       `Fetching arbitrage insights for ${assetIdA} and ${assetIdB}`,
     );
 
-    // Build optimized SQL query that:
-    // 1. Uses indexes (asset_id, timestamp)
-    // 2. Joins on same timestamp
-    // 3. Extracts JSONB data efficiently
-    // 4. Limits result set
+    const whereClausesA = [
+      'asset_id = {assetIdA:String}',
+      'isFinite(best_ask)',
+      'isFinite(best_bid)',
+    ];
+    const whereClausesB = [
+      'asset_id = {assetIdB:String}',
+      'isFinite(best_ask)',
+      'isFinite(best_bid)',
+    ];
+
+    if (startTime) {
+      whereClausesA.push('timestamp >= toDateTime64({startTime:UInt64}, 3)');
+      whereClausesB.push('timestamp >= toDateTime64({startTime:UInt64}, 3)');
+    }
+
+    if (endTime) {
+      whereClausesA.push('timestamp <= toDateTime64({endTime:UInt64}, 3)');
+      whereClausesB.push('timestamp <= toDateTime64({endTime:UInt64}, 3)');
+    }
+
+    const whereA = whereClausesA.join(' AND ');
+    const whereB = whereClausesB.join(' AND ');
+
     const rawQuery = `
-      WITH orderbook_a AS (
-      (
-        SELECT 
-          timestamp,
-          asset_id,
-          (
-            SELECT MIN((elem->>'price')::numeric)
-            FROM jsonb_array_elements(asks) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as min_ask,
-          (
-            SELECT MAX((elem->>'price')::numeric)
-            FROM jsonb_array_elements(bids) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as max_bid,
-          created_at
-        FROM market_orderbooks
-        WHERE asset_id = $1
-          ${startTime ? 'AND timestamp >= $3' : ''}
-          ${endTime ? `AND timestamp <= $${startTime ? '4' : '3'}` : ''}
-          AND asks IS NOT NULL 
-          AND bids IS NOT NULL
-          AND jsonb_array_length(asks) > 0
-          AND jsonb_array_length(bids) > 0
-        ORDER BY timestamp DESC
-        LIMIT $${endTime ? (startTime ? '5' : '4') : startTime ? '4' : '3'}
-      )
-      ),
-      orderbook_b AS (
-      (
-        SELECT 
-          timestamp,
-          asset_id,
-          (
-            SELECT MIN((elem->>'price')::numeric)
-            FROM jsonb_array_elements(asks) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as min_ask,
-          (
-            SELECT MAX((elem->>'price')::numeric)
-            FROM jsonb_array_elements(bids) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as max_bid,
-          created_at
-        FROM market_orderbooks
-        WHERE asset_id = $2
-          ${startTime ? 'AND timestamp >= $3' : ''}
-          ${endTime ? `AND timestamp <= $${startTime ? '4' : '3'}` : ''}
-          AND asks IS NOT NULL 
-          AND bids IS NOT NULL
-          AND jsonb_array_length(asks) > 0
-          AND jsonb_array_length(bids) > 0
-        ORDER BY timestamp DESC
-      )
-      )
+      WITH
+        orderbook_a AS (
+          SELECT 
+            timestamp,
+            asset_id,
+            best_ask AS min_ask,
+            best_bid AS max_bid
+          FROM ${this.orderbookTable}
+          WHERE ${whereA}
+          ORDER BY timestamp DESC
+          LIMIT {limit:Int32}
+        ),
+        orderbook_b AS (
+          SELECT 
+            timestamp,
+            asset_id,
+            best_ask AS min_ask,
+            best_bid AS max_bid
+          FROM ${this.orderbookTable}
+          WHERE ${whereB}
+          ORDER BY timestamp DESC
+          LIMIT {limit:Int32}
+        )
       SELECT 
         a.timestamp,
         a.asset_id as asset_id_a,
@@ -137,24 +122,33 @@ export class ArbitrageInsightService {
         a.max_bid as max_bid_a,
         b.min_ask as min_ask_b,
         b.max_bid as max_bid_b,
-        -- Arbitrage under 1: min(asks_A) + min(asks_B)
         (a.min_ask + b.min_ask) as arbitrage_under_1_value,
-        -- Arbitrage over 1.01: max(bids_A) + max(bids_B)
-        (a.max_bid + b.max_bid) as arbitrage_over_101_value,
-        a.created_at
+        (a.max_bid + b.max_bid) as arbitrage_over_101_value
       FROM orderbook_a a
       INNER JOIN orderbook_b b ON a.timestamp = b.timestamp
       ORDER BY a.timestamp DESC
+      LIMIT {limit:Int32}
     `;
 
-    // Build parameters array dynamically
-    const params: any[] = [assetIdA, assetIdB];
-    if (startTime) params.push(startTime);
-    if (endTime) params.push(endTime);
-    params.push(limit);
+    const params: Record<string, any> = {
+      assetIdA,
+      assetIdB,
+      limit,
+    };
+
+    if (startTime) {
+      params.startTime = startTime;
+    }
+
+    if (endTime) {
+      params.endTime = endTime;
+    }
 
     try {
-      const results = await this.orderbookRepository.query(rawQuery, params);
+      const results = await this.clickHouseService.query<any>(
+        rawQuery,
+        params,
+      );
 
       // Log raw results for debugging
       if (results.length > 0) {
@@ -308,76 +302,60 @@ export class ArbitrageInsightService {
    */
   async getOrderbookDebug(assetIdA: string, assetIdB: string): Promise<any> {
     const query = `
-      (
-        SELECT 
-          'Asset A' as source,
-          asset_id,
-          timestamp,
-          (
-            SELECT MIN((elem->>'price')::numeric)
-            FROM jsonb_array_elements(asks) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as min_ask,
-          (
-            SELECT MAX((elem->>'price')::numeric)
-            FROM jsonb_array_elements(bids) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as max_bid,
-          asks->0 as first_ask_level,
-          bids->0 as first_bid_level,
-          jsonb_array_length(asks) as ask_count,
-          jsonb_array_length(bids) as bid_count,
-          created_at
-        FROM market_orderbooks
-        WHERE asset_id = $1
-          AND asks IS NOT NULL 
-          AND bids IS NOT NULL
-          AND jsonb_array_length(asks) > 0
-          AND jsonb_array_length(bids) > 0
-        ORDER BY timestamp DESC
-        LIMIT 5
-      )
-      
-      UNION ALL
-      
-      (
-        SELECT 
-          'Asset B' as source,
-          asset_id,
-          timestamp,
-          (
-            SELECT MIN((elem->>'price')::numeric)
-            FROM jsonb_array_elements(asks) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as min_ask,
-          (
-            SELECT MAX((elem->>'price')::numeric)
-            FROM jsonb_array_elements(bids) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as max_bid,
-          asks->0 as first_ask_level,
-          bids->0 as first_bid_level,
-          jsonb_array_length(asks) as ask_count,
-          jsonb_array_length(bids) as bid_count,
-          created_at
-        FROM market_orderbooks
-        WHERE asset_id = $2
-          AND asks IS NOT NULL 
-          AND bids IS NOT NULL
-          AND jsonb_array_length(asks) > 0
-          AND jsonb_array_length(bids) > 0
-        ORDER BY timestamp DESC
-        LIMIT 5
-      )
-      ORDER BY source, timestamp DESC
+      SELECT 
+        asset_id,
+        timestamp,
+        best_ask as min_ask,
+        best_bid as max_bid,
+        asks_price,
+        asks_size,
+        bids_price,
+        bids_size,
+        length(asks_price) as ask_count,
+        length(bids_price) as bid_count,
+        asks_price[1] as first_ask_price,
+        asks_size[1] as first_ask_size,
+        bids_price[1] as first_bid_price,
+        bids_size[1] as first_bid_size
+      FROM ${this.orderbookTable}
+      WHERE asset_id IN ({assetIds:Array(String)})
+        AND isFinite(best_ask)
+        AND isFinite(best_bid)
+      ORDER BY asset_id, timestamp DESC
+      LIMIT 5 BY asset_id
     `;
 
     try {
-      const results = await this.orderbookRepository.query(query, [
-        assetIdA,
-        assetIdB,
-      ]);
-      return results;
+      const results = await this.clickHouseService.query<any>(query, {
+        assetIds: [assetIdA, assetIdB],
+      });
+
+      return results.map((row: any) => {
+        const source =
+          row.asset_id === assetIdA
+            ? 'Asset A'
+            : row.asset_id === assetIdB
+              ? 'Asset B'
+              : 'Unknown';
+
+        return {
+          source,
+          asset_id: row.asset_id,
+          timestamp: row.timestamp,
+          min_ask: row.min_ask !== null ? parseFloat(row.min_ask) : null,
+          max_bid: row.max_bid !== null ? parseFloat(row.max_bid) : null,
+          first_ask_level:
+            row.first_ask_price !== null && row.first_ask_size !== null
+              ? { price: row.first_ask_price, size: row.first_ask_size }
+              : null,
+          first_bid_level:
+            row.first_bid_price !== null && row.first_bid_size !== null
+              ? { price: row.first_bid_price, size: row.first_bid_size }
+              : null,
+          ask_count: row.ask_count !== null ? parseInt(row.ask_count) : 0,
+          bid_count: row.bid_count !== null ? parseInt(row.bid_count) : 0,
+        };
+      });
     } catch (error) {
       this.logger.error('Error in getOrderbookDebug:', error);
       throw error;
@@ -479,60 +457,48 @@ export class ArbitrageInsightService {
       'Scanning for profitable arbitrage with market details (same market & timestamp)...',
     );
 
-    // Query to get profitable pairs with market and orderbook info
-    // IMPORTANT: Both assets must be from same market (same market_id) and same timestamp
     const query = `
       WITH recent_orderbooks AS (
         SELECT 
           asset_id,
           timestamp,
+          best_ask,
+          best_bid,
+          market_slug,
           market_id,
-          slug,
-          (
-            SELECT MIN((elem->>'price')::numeric)
-            FROM jsonb_array_elements(asks) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as min_ask,
-          (
-            SELECT MAX((elem->>'price')::numeric)
-            FROM jsonb_array_elements(bids) elem
-            WHERE (elem->>'price') IS NOT NULL
-          ) as max_bid,
-          asks,
-          bids,
-          last_trade_price,
-          created_at
-        FROM market_orderbooks
-        WHERE created_at > NOW() - INTERVAL '1 hour'
-          AND asks IS NOT NULL
-          AND bids IS NOT NULL
-          AND jsonb_array_length(asks) > 0
-          AND jsonb_array_length(bids) > 0
-          AND market_id IS NOT NULL
+          asks_price,
+          asks_size,
+          bids_price,
+          bids_size,
+          length(asks_price) as asks_count,
+          length(bids_price) as bids_count
+        FROM ${this.orderbookTable}
+        WHERE timestamp > now() - INTERVAL 1 HOUR
+          AND isFinite(best_ask)
+          AND isFinite(best_bid)
+          AND market_id != ''
       ),
       asset_pairs AS (
         SELECT 
           a.asset_id as asset_id_a,
           b.asset_id as asset_id_b,
-          a.min_ask as min_ask_a,
-          b.min_ask as min_ask_b,
-          a.max_bid as max_bid_a,
-          b.max_bid as max_bid_b,
-          (a.min_ask + b.min_ask) as total_cost,
-          (a.max_bid + b.max_bid) as total_payout,
+          a.best_ask as min_ask_a,
+          b.best_ask as min_ask_b,
+          a.best_bid as max_bid_a,
+          b.best_bid as max_bid_b,
+          (a.best_ask + b.best_ask) as total_cost,
+          (a.best_bid + b.best_bid) as total_payout,
           a.timestamp,
-          a.asks as asks_a,
-          a.bids as bids_a,
-          b.asks as asks_b,
-          b.bids as bids_b,
-          a.last_trade_price as last_price_a,
-          b.last_trade_price as last_price_b,
+          a.asks_count as asks_count_a,
+          a.bids_count as bids_count_a,
+          b.asks_count as asks_count_b,
+          b.bids_count as bids_count_b,
           a.market_id,
-          a.slug as slug_a,
-          b.slug as slug_b
+          a.market_slug as slug_a,
+          b.market_slug as slug_b
         FROM recent_orderbooks a
         INNER JOIN recent_orderbooks b 
-          ON a.market_id = b.market_id 
+          ON a.market_id = b.market_id
           AND a.timestamp = b.timestamp
           AND a.asset_id < b.asset_id
       )
@@ -548,31 +514,23 @@ export class ArbitrageInsightService {
         (total_cost < 0.98) as profitable_under,
         (total_payout > 1.01) as profitable_over,
         timestamp,
-        asks_a,
-        bids_a,
-        asks_b,
-        bids_b,
-        last_price_a,
-        last_price_b,
+        asks_count_a,
+        bids_count_a,
+        asks_count_b,
+        bids_count_b,
         market_id,
         slug_a,
         slug_b
       FROM asset_pairs
       WHERE (total_cost < 0.98 OR total_payout > 1.01)
       ORDER BY 
-        CASE 
-          WHEN total_cost < 0.98 THEN (0.98 - total_cost)
-          ELSE 0
-        END +
-        CASE
-          WHEN total_payout > 1.01 THEN (total_payout - 1.01)
-          ELSE 0
-        END DESC
+        (if(total_cost < 0.98, (0.98 - total_cost), 0)) +
+        (if(total_payout > 1.01, (total_payout - 1.01), 0)) DESC
       LIMIT 50
     `;
 
     try {
-      const results = await this.orderbookRepository.query(query);
+      const results = await this.clickHouseService.query<any>(query);
 
       const opportunities = results.map((row: any) => {
         const profitableTypes = [];
@@ -600,17 +558,15 @@ export class ArbitrageInsightService {
             timestamp: row.timestamp,
             minAsk: parseFloat(row.min_ask_a),
             maxBid: parseFloat(row.max_bid_a),
-            lastTradePrice: row.last_price_a,
-            asksCount: row.asks_a ? row.asks_a.length : 0,
-            bidsCount: row.bids_a ? row.bids_a.length : 0,
+            asksCount: row.asks_count_a !== null ? parseInt(row.asks_count_a) : 0,
+            bidsCount: row.bids_count_a !== null ? parseInt(row.bids_count_a) : 0,
           },
           orderBookB: {
             timestamp: row.timestamp,
             minAsk: parseFloat(row.min_ask_b),
             maxBid: parseFloat(row.max_bid_b),
-            lastTradePrice: row.last_price_b,
-            asksCount: row.asks_b ? row.asks_b.length : 0,
-            bidsCount: row.bids_b ? row.bids_b.length : 0,
+            asksCount: row.asks_count_b !== null ? parseInt(row.asks_count_b) : 0,
+            bidsCount: row.bids_count_b !== null ? parseInt(row.bids_count_b) : 0,
           },
           arbitrage: {
             timestamp: row.timestamp,
@@ -655,25 +611,25 @@ export class ArbitrageInsightService {
       SELECT 
         a.asset_id as asset_id_a,
         b.asset_id as asset_id_b,
-        COUNT(DISTINCT a.timestamp) as common_timestamps
+        countDistinct(a.timestamp) as common_timestamps
       FROM (
         SELECT DISTINCT asset_id, timestamp
-        FROM market_orderbooks
-        WHERE created_at > NOW() - INTERVAL '24 hours'
+        FROM ${this.orderbookTable}
+        WHERE timestamp > now() - INTERVAL 24 HOUR
       ) a
       INNER JOIN (
         SELECT DISTINCT asset_id, timestamp
-        FROM market_orderbooks
-        WHERE created_at > NOW() - INTERVAL '24 hours'
+        FROM ${this.orderbookTable}
+        WHERE timestamp > now() - INTERVAL 24 HOUR
       ) b ON a.timestamp = b.timestamp AND a.asset_id < b.asset_id
       GROUP BY a.asset_id, b.asset_id
-      HAVING COUNT(DISTINCT a.timestamp) > 10
+      HAVING common_timestamps > 10
       ORDER BY common_timestamps DESC
       LIMIT 50
     `;
 
     try {
-      const results = await this.orderbookRepository.query(query);
+      const results = await this.clickHouseService.query<any>(query);
       return results.map((row: any) => ({
         assetIdA: row.asset_id_a,
         assetIdB: row.asset_id_b,

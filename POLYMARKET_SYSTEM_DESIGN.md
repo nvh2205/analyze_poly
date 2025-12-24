@@ -966,6 +966,9 @@ func NewKafkaWriterReliable(brokers []string, topic string) *kafka.Writer {
 
 ### 5.3 TimescaleDB Schema
 
+> **Note (current codebase):** orderbook snapshots are stored directly in **ClickHouse** (table `market_orderbooks`).
+> Postgres is used for metadata tables (e.g. `markets`). The SQL below is a legacy design reference and is not used by the current implementation.
+
 ```sql
 -- Enable TimescaleDB extension
 CREATE EXTENSION IF NOT EXISTS timescaledb;

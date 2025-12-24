@@ -5,17 +5,24 @@ WORKDIR /app
 
 # Copy package files
 COPY package.json ./
+COPY package-lock.json* ./
 COPY yarn.lock* ./
 
 # Install dependencies
-# If yarn.lock exists, use it; otherwise let yarn create a new one
-RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else yarn install; fi
+# Use npm if package-lock.json exists, otherwise use yarn
+RUN if [ -f package-lock.json ]; then \
+      npm ci; \
+    elif [ -f yarn.lock ]; then \
+      yarn install --frozen-lockfile; \
+    else \
+      npm install; \
+    fi
 
 # Copy source code
 COPY . .
 
 # Build the application
-RUN yarn build
+RUN if [ -f package-lock.json ]; then npm run build; else yarn build; fi
 
 # Stage 2: Runtime
 FROM --platform=linux/amd64 node:20-alpine AS runtime
@@ -31,11 +38,17 @@ RUN addgroup -g 1001 -S nodejs && \
 
 # Copy package files
 COPY package.json ./
+COPY package-lock.json* ./
 COPY yarn.lock* ./
 
 # Install production dependencies only
-RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile --production; else yarn install --production; fi && \
-    yarn cache clean
+RUN if [ -f package-lock.json ]; then \
+      npm ci --only=production && npm cache clean --force; \
+    elif [ -f yarn.lock ]; then \
+      yarn install --frozen-lockfile --production && yarn cache clean; \
+    else \
+      npm install --only=production && npm cache clean --force; \
+    fi
 
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist

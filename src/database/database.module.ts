@@ -1,6 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { MarketOrderbook, Market } from './entities';
+import { Market } from './entities';
 
 /**
  * Database Module
@@ -10,7 +10,6 @@ import { MarketOrderbook, Market } from './entities';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      MarketOrderbook,
       Market,
       // Thêm entities khác ở đây
     ]),

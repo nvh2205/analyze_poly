@@ -255,6 +255,7 @@ export class SocketManagerService
       const marketData: MarketData = {
         market: parsed.market || '',
         asset_id: parsed.asset_id || '',
+        // Keep raw timestamp; BufferService will normalize to Unix seconds.
         timestamp: parsed.timestamp || Date.now(),
         bids: parsed.bids || null,
         asks: parsed.asks || null,

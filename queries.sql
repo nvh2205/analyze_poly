@@ -1,90 +1,93 @@
+-- NOTE: This file now contains ClickHouse queries for `market_orderbooks_analytics`
+
 -- Query: Get latest orderbook for a specific asset
-SELECT 
+SELECT
     asset_id,
     market_hash,
+    market_slug,
+    market_id,
     timestamp,
-    bids,
-    asks,
-    last_trade_price,
-    created_at
-FROM market_orderbooks
+    best_bid,
+    best_ask,
+    spread,
+    price
+FROM market_orderbooks_analytics
 WHERE asset_id = 'YOUR_ASSET_ID'
 ORDER BY timestamp DESC
 LIMIT 1;
 
--- Query: Get orderbook history for an asset in a time range
-SELECT 
+-- Query: Get orderbook history for an asset in a time range (unix seconds -> DateTime64)
+SELECT
     asset_id,
+    market_hash,
+    market_slug,
+    market_id,
     timestamp,
-    jsonb_array_length(bids) as bid_levels,
-    jsonb_array_length(asks) as ask_levels,
-    last_trade_price,
-    created_at
-FROM market_orderbooks
+    best_bid,
+    best_ask,
+    spread,
+    price
+FROM market_orderbooks_analytics
 WHERE asset_id = 'YOUR_ASSET_ID'
-    AND timestamp BETWEEN 1700000000 AND 1700100000
+  AND timestamp BETWEEN toDateTime64(1700000000, 3) AND toDateTime64(1700100000, 3)
 ORDER BY timestamp DESC;
 
 -- Query: Count records per asset
-SELECT 
+SELECT
     asset_id,
-    COUNT(*) as record_count,
-    MIN(created_at) as first_seen,
-    MAX(created_at) as last_seen
-FROM market_orderbooks
+    count() as record_count,
+    min(timestamp) as first_seen,
+    max(timestamp) as last_seen
+FROM market_orderbooks_analytics
 GROUP BY asset_id
 ORDER BY record_count DESC;
 
--- Query: Get top bid/ask for latest orderbook
-SELECT 
+-- Query: Get top bid/ask for latest orderbook (precomputed)
+SELECT
     asset_id,
+    market_hash,
+    market_slug,
+    market_id,
     timestamp,
-    (bids->0->>'price')::numeric as best_bid,
-    (asks->0->>'price')::numeric as best_ask,
-    ((asks->0->>'price')::numeric - (bids->0->>'price')::numeric) as spread
-FROM market_orderbooks
+    best_bid,
+    best_ask,
+    spread,
+    price
+FROM market_orderbooks_analytics
 WHERE asset_id = 'YOUR_ASSET_ID'
 ORDER BY timestamp DESC
 LIMIT 1;
 
 -- Query: Data volume statistics
-SELECT 
-    DATE(created_at) as date,
-    COUNT(*) as records,
-    COUNT(DISTINCT asset_id) as unique_assets,
-    pg_size_pretty(pg_total_relation_size('market_orderbooks')) as table_size
-FROM market_orderbooks
-GROUP BY DATE(created_at)
+SELECT
+    toDate(timestamp) as date,
+    count() as records,
+    uniqExact(asset_id) as unique_assets
+FROM market_orderbooks_analytics
+GROUP BY date
 ORDER BY date DESC;
 
--- Query: Find assets with most activity
-SELECT 
+-- Query: Find assets with most activity (last 1 hour)
+SELECT
     asset_id,
-    COUNT(*) as updates,
-    MAX(timestamp) as last_update,
-    COUNT(DISTINCT market_hash) as markets
-FROM market_orderbooks
-WHERE created_at > NOW() - INTERVAL '1 hour'
+    count() as updates,
+    max(timestamp) as last_update,
+    uniqExact(market_slug) as markets
+FROM market_orderbooks_analytics
+WHERE timestamp > now() - INTERVAL 1 HOUR
 GROUP BY asset_id
 ORDER BY updates DESC
 LIMIT 10;
 
 -- Query: Database maintenance - Delete old data (older than 30 days)
--- DELETE FROM market_orderbooks 
--- WHERE created_at < NOW() - INTERVAL '30 days';
+-- ALTER TABLE market_orderbooks_analytics DELETE WHERE timestamp < now() - INTERVAL 30 DAY;
 
--- Query: Analyze table performance
-ANALYZE market_orderbooks;
-
--- Query: Check index usage
-SELECT 
-    schemaname,
-    tablename,
-    indexname,
-    idx_scan,
-    idx_tup_read,
-    idx_tup_fetch
-FROM pg_stat_user_indexes
-WHERE tablename = 'market_orderbooks'
-ORDER BY idx_scan DESC;
+-- Query: Storage overview
+-- SELECT
+--   table,
+--   formatReadableSize(sum(bytes)) AS size,
+--   sum(rows) AS rows
+-- FROM system.parts
+-- WHERE database = currentDatabase() AND table = 'market_orderbooks_analytics' AND active
+-- GROUP BY table;
 

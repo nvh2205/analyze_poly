@@ -5,10 +5,10 @@ import { MarketController } from './market.controller';
 import { ArbitrageInsightService } from './arbitrage-insight.service';
 import { UtilService } from '../../common/services/util.service';
 import { IngestionModule } from '../ingestion/ingestion.module';
-import { MarketOrderbook } from '../../database/entities/market-orderbook.entity';
+import { Market } from '../../database/entities/market.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MarketOrderbook]), IngestionModule],
+  imports: [TypeOrmModule.forFeature([Market]), IngestionModule],
   controllers: [MarketController],
   providers: [MarketService, ArbitrageInsightService, UtilService],
   exports: [MarketService, ArbitrageInsightService],

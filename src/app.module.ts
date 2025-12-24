@@ -7,8 +7,8 @@ import { DatabaseModule } from './database/database.module';
 import { MarketModule } from './modules/market/market.module';
 import { IngestionModule } from './modules/ingestion/ingestion.module';
 import { RedisModule } from './common/services/redis.module';
+import { ClickHouseModule } from './common/services/clickhouse.module';
 import { APP_CONSTANTS } from './common/constants/app.constants';
-import { MarketOrderbook } from './database/entities/market-orderbook.entity';
 import { Market } from './database/entities/market.entity';
 
 @Module({
@@ -27,7 +27,7 @@ import { Market } from './database/entities/market.entity';
         username: configService.get('DB_USERNAME'),
         password: configService.get('DB_PASSWORD'),
         database: configService.get('DB_DATABASE'),
-        entities: [MarketOrderbook, Market], // Import entities directly
+        entities: [Market], // Import entities directly
         synchronize: true, // Auto-sync database schema
         logging: false, // Enable logging to see CREATE TABLE queries
         extra: {
@@ -38,6 +38,7 @@ import { Market } from './database/entities/market.entity';
     }),
     DatabaseModule, // Global database module
     RedisModule,
+    ClickHouseModule,
     MarketModule,
     IngestionModule,
   ],

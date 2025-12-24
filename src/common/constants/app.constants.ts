@@ -65,4 +65,8 @@ export const APP_CONSTANTS = {
 
   // Database Configuration
   DB_POOL_SIZE: 50,
+
+  // ClickHouse Configuration
+  CLICKHOUSE_BATCH_SIZE: 10000, // Number of records before flush to ClickHouse
+  CLICKHOUSE_FLUSH_INTERVAL_MS: 5000, // 5 seconds
 } as const;
