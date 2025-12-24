@@ -11,11 +11,11 @@ COPY yarn.lock* ./
 # Install dependencies
 # Use npm if package-lock.json exists, otherwise use yarn
 RUN if [ -f package-lock.json ]; then \
-      npm ci; \
+      npm ci --legacy-peer-deps; \
     elif [ -f yarn.lock ]; then \
       yarn install --frozen-lockfile; \
     else \
-      npm install; \
+      npm install --legacy-peer-deps; \
     fi
 
 # Copy source code
@@ -43,11 +43,11 @@ COPY yarn.lock* ./
 
 # Install production dependencies only
 RUN if [ -f package-lock.json ]; then \
-      npm ci --only=production && npm cache clean --force; \
+      npm ci --omit=dev --legacy-peer-deps && npm cache clean --force; \
     elif [ -f yarn.lock ]; then \
       yarn install --frozen-lockfile --production && yarn cache clean; \
     else \
-      npm install --only=production && npm cache clean --force; \
+      npm install --omit=dev --legacy-peer-deps && npm cache clean --force; \
     fi
 
 # Copy built application from builder
