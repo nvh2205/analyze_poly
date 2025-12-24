@@ -57,6 +57,36 @@ else
     DOCKER_COMPOSE="docker-compose"
 fi
 
+# Function to check and free port
+check_and_free_port() {
+    local port=$1
+    local service=$2
+    
+    if command -v lsof &> /dev/null; then
+        local pid=$(lsof -ti :$port 2>/dev/null)
+        if [ -n "$pid" ]; then
+            local process=$(ps -p $pid -o comm= 2>/dev/null || echo "unknown")
+            warning "Port $port ($service) is in use by PID $pid ($process)"
+            
+            # Check if it's a Docker container by checking process name
+            if echo "$process" | grep -q "docker"; then
+                log "Port $port is used by Docker, will be handled by docker-compose down..."
+            else
+                # Try to kill the process (non-interactive, use sudo if needed)
+                log "Attempting to free port $port..."
+                if kill $pid 2>/dev/null; then
+                    log "✓ Port $port freed successfully"
+                elif sudo kill $pid 2>/dev/null; then
+                    log "✓ Port $port freed successfully (with sudo)"
+                else
+                    warning "Cannot free port $port automatically. Please run: ./free-port.sh $port"
+                fi
+                sleep 1
+            fi
+        fi
+    fi
+}
+
 log "Starting deployment process..."
 log "Project directory: $PROJECT_DIR"
 log "Branch: $BRANCH"
@@ -95,17 +125,26 @@ log "Code updated successfully"
 log "Latest commit: $(git rev-parse --short HEAD)"
 log "Commit message: $(git log -1 --pretty=%B)"
 
-# Step 3: Stop existing app container (keep other services running)
-log "Step 3: Stopping app container..."
+# Step 3: Check and free ports
+log "Step 3: Checking for port conflicts..."
+check_and_free_port 5482 "PostgreSQL"
+check_and_free_port 6429 "Redis"
+check_and_free_port 8173 "ClickHouse HTTP"
+check_and_free_port 9050 "ClickHouse Native"
+check_and_free_port 3050 "App"
+
+# Step 4: Stop existing containers
+log "Step 4: Stopping existing containers..."
+$DOCKER_COMPOSE down 2>/dev/null || warning "No existing containers to stop"
 $DOCKER_COMPOSE stop app 2>/dev/null || warning "App container not running"
 
-# Step 4: Build Docker image
-log "Step 4: Building Docker image..."
+# Step 5: Build Docker image
+log "Step 5: Building Docker image..."
 $DOCKER_COMPOSE build --no-cache app
 log "Docker image built successfully"
 
-# Step 5: Start services (ensure dependencies are up)
-log "Step 5: Starting dependencies (postgres, redis, clickhouse)..."
+# Step 6: Start services (ensure dependencies are up)
+log "Step 6: Starting dependencies (postgres, redis, clickhouse)..."
 $DOCKER_COMPOSE up -d postgres redis clickhouse
 
 # Wait for dependencies to be ready
@@ -138,12 +177,12 @@ for i in {1..30}; do
     sleep 2
 done
 
-# Step 6: Start/restart app
-log "Step 6: Starting app container..."
+# Step 7: Start/restart app
+log "Step 7: Starting app container..."
 $DOCKER_COMPOSE up -d app
 
-# Step 7: Wait for app to be healthy
-log "Step 7: Waiting for app to be healthy..."
+# Step 8: Wait for app to be healthy
+log "Step 8: Waiting for app to be healthy..."
 for i in {1..60}; do
     if $DOCKER_COMPOSE exec -T app node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" > /dev/null 2>&1; then
         log "App is healthy and running"
@@ -158,8 +197,8 @@ for i in {1..60}; do
     sleep 2
 done
 
-# Step 8: Show status
-log "Step 8: Deployment completed successfully!"
+# Step 9: Show status
+log "Step 9: Deployment completed successfully!"
 echo ""
 log "Container status:"
 $DOCKER_COMPOSE ps
