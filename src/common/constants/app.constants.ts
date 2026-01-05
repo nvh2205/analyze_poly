@@ -38,6 +38,18 @@ export const APP_CONSTANTS = {
       interval: '15m',
       crypto: 'eth',
     },
+    {
+      pattern: 'timestamp',
+      baseSlug: 'sol-updown-15m',
+      interval: '15m',
+      crypto: 'sol',
+    },
+    {
+      pattern: 'timestamp',
+      baseSlug: 'xrp-updown-15m',
+      interval: '15m',
+      crypto: 'xrp',
+    },
     // { pattern: 'timestamp', baseSlug: 'solana-updown-15m', interval: '15m', crypto: 'sol' },
 
     // { pattern: 'timestamp', baseSlug: 'btc-updown-4h', interval: '4h', crypto: 'btc' },
