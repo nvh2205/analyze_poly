@@ -128,57 +128,42 @@ export class PriceRangeAnalyticsService {
     }
   }
 
-  /**
-   * Get top edge setups for a market type
-   */
-  async getTopEdges(
-    type: string,
-    tokenSide: string = 'yes',
-    limit: number = 10,
-  ): Promise<EdgeSetup[]> {
-    const analytics = await this.getAnalytics({ type, tokenSide });
 
-    if (!analytics || !analytics.top_edges) {
-      return [];
-    }
-
-    return analytics.top_edges.slice(0, limit);
-  }
 
   /**
    * Get range statistics for a market type
    */
-  async getRangeStats(
-    type: string,
-    tokenSide: string = 'yes',
-  ): Promise<{ ranges: PriceRange[]; stats: RangeStats[] } | null> {
-    const analytics = await this.getAnalytics({ type, tokenSide });
+  // async getRangeStats(
+  //   type: string,
+  //   tokenSide: string = 'yes',
+  // ): Promise<{ ranges: PriceRange[]; stats: RangeStats[] } | null> {
+  //   const analytics = await this.getAnalytics({ type, tokenSide });
 
-    if (!analytics) {
-      return null;
-    }
+  //   if (!analytics) {
+  //     return null;
+  //   }
 
-    return {
-      ranges: analytics.ranges,
-      stats: analytics.range_stats,
-    };
-  }
+  //   return {
+  //     ranges: analytics.ranges,
+  //     stats: analytics.range_stats,
+  //   };
+  // }
 
   /**
    * Get edge summary for a market type
    */
-  async getEdgeSummary(
-    type: string,
-    tokenSide: string = 'yes',
-  ): Promise<AnalyticsPayload['edge_summary'] | null> {
-    const analytics = await this.getAnalytics({ type, tokenSide });
+  // async getEdgeSummary(
+  //   type: string,
+  //   tokenSide: string = 'yes',
+  // ): Promise<AnalyticsPayload['edge_summary'] | null> {
+  //   const analytics = await this.getAnalytics({ type, tokenSide });
 
-    if (!analytics) {
-      return null;
-    }
+  //   if (!analytics) {
+  //     return null;
+  //   }
 
-    return analytics.edge_summary;
-  }
+  //   return analytics.edge_summary;
+  // }
 
   /**
    * Check if analytics exist for a market type

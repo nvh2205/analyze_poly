@@ -901,95 +901,48 @@ export class MarketController {
     return analytics;
   }
 
-  @Get('price-ranges/edges')
-  @ApiOperation({
-    summary: 'Get top edge setups for a market type',
-    description:
-      'Returns filtered and ranked edge setups with high probability, positive EV, and tight confidence intervals',
-  })
-  @ApiQuery({
-    name: 'type',
-    required: true,
-    description: 'Market type',
-    example: 'btc-updown-15m',
-  })
-  @ApiQuery({
-    name: 'tokenSide',
-    required: false,
-    description: 'Token side',
-    example: 'yes',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    description: 'Maximum number of edges to return',
-    example: 10,
-  })
-  @ApiOkResponse({
-    description: 'Top edge setups',
-  })
-  async getTopEdges(
-    @Query('type') type: string,
-    @Query('tokenSide') tokenSide?: string,
-    @Query('limit') limit?: string,
-  ) {
-    if (!type) {
-      throw new BadRequestException('type parameter is required');
-    }
 
-    const edges = await this.priceRangeAnalyticsService.getTopEdges(
-      type,
-      tokenSide || 'yes',
-      limit ? parseInt(limit) : 10,
-    );
+  // @Get('price-ranges/summary')
+  // @ApiOperation({
+  //   summary: 'Get edge summary statistics for a market type',
+  //   description: 'Returns aggregated statistics about edge setups',
+  // })
+  // @ApiQuery({
+  //   name: 'type',
+  //   required: true,
+  //   description: 'Market type',
+  //   example: 'btc-updown-15m',
+  // })
+  // @ApiQuery({
+  //   name: 'tokenSide',
+  //   required: false,
+  //   description: 'Token side',
+  //   example: 'yes',
+  // })
+  // @ApiOkResponse({
+  //   description: 'Edge summary statistics',
+  // })
+  // async getEdgeSummary(
+  //   @Query('type') type: string,
+  //   @Query('tokenSide') tokenSide?: string,
+  // ) {
+  //   if (!type) {
+  //     throw new BadRequestException('type parameter is required');
+  //   }
 
-    return {
-      count: edges.length,
-      edges,
-    };
-  }
+  //   const summary = await this.priceRangeAnalyticsService.getEdgeSummary(
+  //     type,
+  //     tokenSide || 'yes',
+  //   );
 
-  @Get('price-ranges/summary')
-  @ApiOperation({
-    summary: 'Get edge summary statistics for a market type',
-    description: 'Returns aggregated statistics about edge setups',
-  })
-  @ApiQuery({
-    name: 'type',
-    required: true,
-    description: 'Market type',
-    example: 'btc-updown-15m',
-  })
-  @ApiQuery({
-    name: 'tokenSide',
-    required: false,
-    description: 'Token side',
-    example: 'yes',
-  })
-  @ApiOkResponse({
-    description: 'Edge summary statistics',
-  })
-  async getEdgeSummary(
-    @Query('type') type: string,
-    @Query('tokenSide') tokenSide?: string,
-  ) {
-    if (!type) {
-      throw new BadRequestException('type parameter is required');
-    }
+  //   if (!summary) {
+  //     throw new BadRequestException(
+  //       `No analytics found for type: ${type}`,
+  //     );
+  //   }
 
-    const summary = await this.priceRangeAnalyticsService.getEdgeSummary(
-      type,
-      tokenSide || 'yes',
-    );
-
-    if (!summary) {
-      throw new BadRequestException(
-        `No analytics found for type: ${type}`,
-      );
-    }
-
-    return summary;
-  }
+  //   return summary;
+  // }
 
   @Get('price-ranges/available-types')
   @ApiOperation({

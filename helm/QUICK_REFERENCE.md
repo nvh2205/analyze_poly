@@ -485,3 +485,4 @@ kubectl delete pods -l app.kubernetes.io/instance=strategy-trade-poly
 
 
 
+
