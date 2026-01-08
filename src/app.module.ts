@@ -10,6 +10,7 @@ import { RedisModule } from './common/services/redis.module';
 import { ClickHouseModule } from './common/services/clickhouse.module';
 import { APP_CONSTANTS } from './common/constants/app.constants';
 import { Market } from './database/entities/market.entity';
+import { WatchlistActivity } from './database/entities/watchlist-activity.entity';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { Market } from './database/entities/market.entity';
         username: configService.get('DB_USERNAME'),
         password: configService.get('DB_PASSWORD'),
         database: configService.get('DB_DATABASE'),
-        entities: [Market], // Import entities directly
+        entities: [Market, WatchlistActivity], // Import entities directly
         synchronize: true, // Auto-sync database schema
         logging: false, // Enable logging to see CREATE TABLE queries
         extra: {

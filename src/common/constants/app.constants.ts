@@ -19,6 +19,7 @@ export const APP_CONSTANTS = {
   // Polymarket API Configuration
   POLYMARKET_API_URL: 'https://gamma-api.polymarket.com',
   POLYMARKET_WS_URL: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
+  POLYMARKET_LIVE_DATA_WS_URL: 'wss://ws-live-data.polymarket.com/',
 
   // Market Discovery Configuration
   MARKET_CACHE_TTL: 1800, // 30 minutes in seconds

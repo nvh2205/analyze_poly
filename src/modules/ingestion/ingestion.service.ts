@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SocketManagerService } from './socket-manager.service';
 import { BufferService } from './buffer.service';
+import { LiveActivitySocketService } from './live-activity-socket.service';
 
 @Injectable()
 export class IngestionService {
@@ -9,6 +10,7 @@ export class IngestionService {
   constructor(
     private readonly socketManager: SocketManagerService,
     private readonly bufferService: BufferService,
+    private readonly liveActivitySocketService: LiveActivitySocketService,
   ) {}
 
   /**
@@ -28,6 +30,8 @@ export class IngestionService {
     return {
       bufferSize: this.bufferService.getBufferSize(),
       connections: this.socketManager.getConnectionStatus(),
+      liveActivityConnections:
+        this.liveActivitySocketService.getConnectionStatus(),
     };
   }
 

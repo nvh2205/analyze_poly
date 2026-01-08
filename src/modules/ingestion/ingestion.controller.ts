@@ -28,6 +28,18 @@ export class IngestionController {
             },
           },
         },
+        liveActivityConnections: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              slug: { type: 'string' },
+              state: { type: 'string', example: 'OPEN' },
+              reconnectAttempts: { type: 'number', example: 0 },
+              endTimeMs: { type: 'number', example: 1767870900000 },
+            },
+          },
+        },
       },
     },
   })

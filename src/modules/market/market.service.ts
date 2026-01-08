@@ -12,6 +12,7 @@ import {
   SlugConfig,
 } from '../../common/constants/app.constants';
 import { Market } from '../../database/entities/market.entity';
+import { LiveActivitySocketService } from '../ingestion/live-activity-socket.service';
 
 @Injectable()
 export class MarketService implements OnApplicationBootstrap {
@@ -24,6 +25,7 @@ export class MarketService implements OnApplicationBootstrap {
     private readonly redisService: RedisService,
     private readonly utilService: UtilService,
     private readonly ingestionService: IngestionService,
+    private readonly liveActivitySocketService: LiveActivitySocketService,
     @InjectRepository(Market)
     private readonly marketRepository: Repository<Market>,
   ) {}
@@ -85,6 +87,11 @@ export class MarketService implements OnApplicationBootstrap {
           market.active = false;
           market.closed = true;
           await this.marketRepository.save(market);
+
+          await this.liveActivitySocketService.closeConnection(
+            market.slug,
+            'market expired',
+          );
 
           this.logger.log(
             `Marked market as closed: ${market.marketId} (${market.slug})`,
@@ -164,6 +171,7 @@ export class MarketService implements OnApplicationBootstrap {
           'market.startTime',
           'market.marketId',
           'market.type',
+          'market.endDate',
         ])
         .where('market.active = :active', { active: true })
         .andWhere('market.startTime IS NOT NULL')
@@ -182,6 +190,20 @@ export class MarketService implements OnApplicationBootstrap {
 
       for (const market of marketsToCheck) {
         try {
+          const endDateMs = market.endDate?.getTime();
+          if (endDateMs && endDateMs <= now.getTime()) {
+            await this.liveActivitySocketService.closeConnection(
+              market.slug,
+              'market ended',
+            );
+            continue;
+          }
+
+          await this.liveActivitySocketService.ensureConnection(
+            market.slug,
+            market.endDate || null,
+          );
+
           // Skip if no clobTokenIds
           if (
             !market.clobTokenIds ||

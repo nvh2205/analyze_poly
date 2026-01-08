@@ -5,16 +5,20 @@ import { SocketManagerService } from './socket-manager.service';
 import { BufferService } from './buffer.service';
 import { UtilService } from '../../common/services/util.service';
 import { RedisModule } from '../../common/services/redis.module';
+import { LiveActivitySocketService } from './live-activity-socket.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { WatchlistActivity } from '../../database/entities/watchlist-activity.entity';
 
 @Module({
-  imports: [RedisModule],
+  imports: [RedisModule, TypeOrmModule.forFeature([WatchlistActivity])],
   controllers: [IngestionController],
   providers: [
     IngestionService,
     SocketManagerService,
     BufferService,
     UtilService,
+    LiveActivitySocketService,
   ],
-  exports: [IngestionService],
+  exports: [IngestionService, LiveActivitySocketService],
 })
 export class IngestionModule {}
